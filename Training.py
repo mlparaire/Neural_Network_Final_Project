@@ -439,18 +439,21 @@ class ResNet50(Preprocessing):
             for param in self.model_resnet50.parameters():
                 param.requires_grad = False
         self.in_features_resnet = self.model_resnet50.fc.in_features
-        self.model_resnet50.fc = nn.Sequential(
+        classifier = [
             nn.Dropout(p=dropout),
             nn.Linear(self.in_features_resnet, 512),
             nn.BatchNorm1d(512),
-            nn.ReLU(inplace=True),
+            nn.SiLU(),                        
 
             nn.Dropout(p=dropout / 2),
             nn.Linear(512, 256),
-            nn.ReLU(inplace=True),
+            nn.LayerNorm(256),                # instead of second BN
+            nn.Mish(),                        # instead of second ReLU
 
             nn.Linear(256, 5)
-        )
+        ]
+        self.model_resnet50.fc = nn.Sequential(*classifier)
+
 
         print("Build EfficientNet-B3")
         self.model_efficientnet_b3  = models.efficientnet_b3(weights=models.EfficientNet_B3_Weights.IMAGENET1K_V1)
@@ -458,15 +461,24 @@ class ResNet50(Preprocessing):
             for param in self.model_efficientnet_b3.parameters():
                 param.requires_grad = False
         self.in_features_efficient = self.model_efficientnet_b3.classifier[1].in_features
-        self.model_efficientnet_b3.classifier = nn.Sequential(
+        classifier = [
             nn.Dropout(p=dropout),
             nn.Linear(self.in_features_efficient, 512),
             nn.BatchNorm1d(512),
-            nn.ReLU(inplace=True),
+            nn.Mish(),
 
             nn.Dropout(p=dropout / 2),
-            nn.Linear(512, 5)
-       )
+            nn.Linear(512, 256),
+            nn.LayerNorm(256),
+            nn.GELU(),
+
+            nn.Dropout(p=dropout / 4),
+            nn.Linear(256, 128),
+            nn.PReLU(),
+
+            nn.Linear(128, 5)
+            ]
+        self.model_efficientnet_b3.classifier = nn.Sequential(*classifier)
  
         print(self.model_resnet50.fc)
         print(f"Total parameters: {sum(p.numel() for p in self.model_resnet50.parameters()):,}")
