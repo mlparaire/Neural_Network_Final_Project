@@ -585,7 +585,7 @@ class ResNet50(Preprocessing):
         """Full training loop with logging, scheduling, and early stopping."""
         
         if best_model:
-            parameters = json.load(open(f'./outputs/params/best_params_{getattr(self,model_name)._get_name()+"_"+chosen_transformation}_{hashlib.sha256(datetime.date.today().strftime("%A %b %d %Y").encode()).hexdigest()[:5]}.json','r'))
+            parameters = json.load(open(f'./outputs/params/best_params_ResNet_{chosen_transformation}_{hashlib.sha256(datetime.date.today().strftime("%A %b %d %Y").encode()).hexdigest()[:5]}.json','r'))
             lr = parameters['lr']
             weight_decay = parameters['weight_decay']
         else:
@@ -789,19 +789,16 @@ class ResNet50(Preprocessing):
     def compute_reports(self, model_name:str):
         print(f"  Classification Report - {getattr(self,model_name)._get_name()}")
         print(classification_report(
-        self.model.labels, self.preds,
+        self.labels, self.preds,
         target_names=self.label_map.values(), digits=4,
         labels=list(range(5))
         ))
 
 class Predict_with_model(Preprocessing):
-    def __init__(self, model, dataloader, optimizer, criterion, preprocessor: Preprocessing, preprocess_method: str = "ben_graham"):
+    def __init__(self, model, images_dir: str, preprocess_method: str = "ben_graham"):
         self.model = model
-        self.dataloader = dataloader
-        self.optimizer = optimizer
-        self.criterion = criterion
-        self.preprocessor = preprocessor
         self.preprocess_method = preprocess_method
+        self.images_dir = images_dir
 
         self.transform = transforms.Compose([
             transforms.Resize((224, 224)),
@@ -811,32 +808,30 @@ class Predict_with_model(Preprocessing):
         ])
 
     def preprocess(self, img):
-        """Apply the same preprocessing used during training."""
         if self.preprocess_method == "ben_graham":
-            img = self.preprocessor.ben_graham_preprocess(img)
+            img = self.ben_graham_preprocess(img)
         elif self.preprocess_method == "clahe":
-            img = self.preprocessor.clahe_preprocess(img)
+            img = self.clahe_preprocess(img)
         return img
 
-    def predict_from_images(self, image_paths: list):
+    def predict_from_images(self):
+        image_paths = [
+            './Dataset/test/'+p for p in os.listdir(self.images_dir)
+        ]
+
         self.model.eval()
-        predictions = []
+        results = {'image' : [],'level':[]}
 
         with torch.no_grad():
             for path in image_paths:
                 img = Image.open(path).convert("RGB")
-
-                # Apply same preprocessing as training
-                img = self.preprocess(img)
-
-                # Convert back to PIL for torchvision transforms
-                img = Image.fromarray(img)
-
-                # Apply tensor transforms
-                tensor = self.transform(img).unsqueeze(0).to(device)
+                img = self.preprocess(img)          # Ben Graham / CLAHE
+                img = Image.fromarray(img)          # back to PIL
+                tensor = self.transform(img).unsqueeze(0).to(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
 
                 output = self.model(tensor)
-                pred = torch.argmax(output, dim=1)
-                predictions.append(pred.item())
+                pred = torch.argmax(output, dim=1).item()
+                results['image'].append(path.replace('./Dataset/test/','').replace('.jpeg',''))
+                results['level'].append(pred)
 
-        return predictions
+        return pd.DataFrame(results)
